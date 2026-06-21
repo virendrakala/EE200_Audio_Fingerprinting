@@ -33,8 +33,8 @@ DT_MAX = 40
 DF_MAX = 200
 
 
-def load_audio(path, sr=SR):
-    y, _ = librosa.load(path, sr=sr, mono=True)
+def load_audio(path, sr=SR, duration=None):
+    y, _ = librosa.load(path, sr=sr, mono=True, duration=duration)
     return y
 
 

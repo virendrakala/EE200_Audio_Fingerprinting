@@ -131,12 +131,12 @@ def get_database():
     return db
 
 
-def load_audio_bytes(audio_bytes, sr=fp.SR):
+def load_audio_bytes(audio_bytes, sr=fp.SR, max_duration=60):
     with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
     try:
-        y = fp.load_audio(tmp_path, sr=sr)
+        y = fp.load_audio(tmp_path, sr=sr, duration=max_duration)
     finally:
         os.unlink(tmp_path)
     return y
