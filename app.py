@@ -131,9 +131,14 @@ def get_database():
     return db
 
 
-def load_audio_bytes(audio_bytes, sr=fp.SR, max_duration=60):
+def load_audio_file(file_obj, sr=fp.SR, max_duration=60):
+    import shutil
     with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-        tmp.write(audio_bytes)
+        if isinstance(file_obj, bytes):
+            tmp.write(file_obj)
+        else:
+            file_obj.seek(0)
+            shutil.copyfileobj(file_obj, tmp)
         tmp_path = tmp.name
     try:
         y = fp.load_audio(tmp_path, sr=sr, duration=max_duration)
@@ -147,7 +152,7 @@ def timed_identify(audio_bytes, db):
     timings = {}
 
     t0 = time.perf_counter()
-    y = load_audio_bytes(audio_bytes)
+    y = load_audio_file(audio_bytes)
     t1 = time.perf_counter()
     timings['load'] = (t1 - t0) * 1000
 
@@ -501,9 +506,7 @@ with tab_batch:
             for i, f in enumerate(batch_files):
                 status.text(f"Identifying {f.name} …")
                 try:
-                    f.seek(0)
-                    audio_bytes = f.read()
-                    y = load_audio_bytes(audio_bytes)
+                    y = load_audio_file(f)
                     ranked, _, _, _, _ = fp.match(y, db, top_k=1)
                     if ranked and ranked[0][1] >= CONFIDENCE_THRESHOLD:
                         prediction = ranked[0][0]
@@ -520,7 +523,6 @@ with tab_batch:
                 
                 # Explicitly clear memory to prevent OOM across large batches
                 try:
-                    del audio_bytes
                     del y
                     del ranked
                 except Exception:
