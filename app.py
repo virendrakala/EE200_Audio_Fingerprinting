@@ -501,7 +501,8 @@ with tab_batch:
             for i, f in enumerate(batch_files):
                 status.text(f"Identifying {f.name} …")
                 try:
-                    audio_bytes = f.getvalue()
+                    f.seek(0)
+                    audio_bytes = f.read()
                     y = load_audio_bytes(audio_bytes)
                     ranked, _, _, _, _ = fp.match(y, db, top_k=1)
                     if ranked and ranked[0][1] >= CONFIDENCE_THRESHOLD:
@@ -516,6 +517,16 @@ with tab_batch:
                 # Use integer progress (0 to 100) to avoid any float type-mismatch errors
                 pct = int((i + 1) * 100 / len(batch_files))
                 progress.progress(min(100, pct))
+                
+                # Explicitly clear memory to prevent OOM across large batches
+                try:
+                    del audio_bytes
+                    del y
+                    del ranked
+                except Exception:
+                    pass
+                import gc
+                gc.collect()
 
             status.text("Done.")
             st.session_state.batch_results = results
