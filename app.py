@@ -132,18 +132,13 @@ def get_database():
 
 
 def load_audio_file(file_obj, sr=fp.SR, max_duration=60):
-    import shutil
-    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-        if isinstance(file_obj, bytes):
-            tmp.write(file_obj)
-        else:
-            file_obj.seek(0)
-            shutil.copyfileobj(file_obj, tmp)
-        tmp_path = tmp.name
-    try:
-        y = fp.load_audio(tmp_path, sr=sr, duration=max_duration)
-    finally:
-        os.unlink(tmp_path)
+    if isinstance(file_obj, bytes):
+        import io
+        file_obj = io.BytesIO(file_obj)
+    else:
+        file_obj.seek(0)
+        
+    y = fp.load_audio(file_obj, sr=sr, duration=max_duration)
     return y
 
 
@@ -527,8 +522,10 @@ with tab_batch:
                     del ranked
                 except Exception:
                     pass
-                import gc
-                gc.collect()
+                
+                # Yield the thread briefly so Streamlit Cloud can run health checks
+                import time
+                time.sleep(0.05)
 
             status.text("Done.")
             st.session_state.batch_results = results
@@ -565,3 +562,4 @@ with tab_batch:
             )
         except Exception as e:
             st.error(f"Error rendering results: {str(e)}")
+# Defensive EOF check
