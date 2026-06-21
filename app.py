@@ -486,51 +486,62 @@ with tab_batch:
     )
 
     if batch_files and st.button("Run batch", type="primary"):
-        results = []
-        progress = st.progress(0)
-        status = st.empty()
+        try:
+            results = []
+            progress = st.progress(0)
+            status = st.empty()
 
-        for i, f in enumerate(batch_files):
-            status.text(f"Identifying {f.name} …")
-            try:
-                audio_bytes = f.read()
-                y = load_audio_bytes(audio_bytes)
-                ranked, _, _, _, _ = fp.match(y, db, top_k=1)
-                if ranked and ranked[0][1] >= CONFIDENCE_THRESHOLD:
-                    prediction = ranked[0][0]
-                else:
+            for i, f in enumerate(batch_files):
+                status.text(f"Identifying {f.name} …")
+                try:
+                    audio_bytes = f.getvalue()
+                    y = load_audio_bytes(audio_bytes)
+                    ranked, _, _, _, _ = fp.match(y, db, top_k=1)
+                    if ranked and ranked[0][1] >= CONFIDENCE_THRESHOLD:
+                        prediction = ranked[0][0]
+                    else:
+                        prediction = "none"
+                except Exception:
                     prediction = "none"
-            except Exception as e:
-                prediction = "none"
-            results.append((os.path.splitext(f.name)[0], prediction))
-            progress.progress((i + 1) / len(batch_files))
+                
+                results.append((os.path.splitext(f.name)[0], prediction))
+                
+                # Use integer progress (0 to 100) to avoid any float type-mismatch errors
+                pct = int((i + 1) * 100 / len(batch_files))
+                progress.progress(min(100, pct))
 
-        status.text("Done.")
-        st.session_state.batch_results = results
-        st.session_state.batch_file_names = [f.name for f in batch_files]
+            status.text("Done.")
+            st.session_state.batch_results = results
+            st.session_state.batch_file_names = [f.name for f in batch_files]
+        except Exception as e:
+            st.error(f"An unexpected error occurred: {str(e)}")
 
     if "batch_results" in st.session_state and batch_files and [f.name for f in batch_files] == st.session_state.get("batch_file_names", []):
-        results = st.session_state.batch_results
-        st.markdown("##### Results")
-        n_matched = sum(1 for _, p in results if p != "none")
-        for fname, pred in results:
-            color = "#5eead4" if pred != "none" else "#64748b"
-            st.markdown(
-                f"<div style='font-family:monospace;'>{fname} &nbsp;→&nbsp; "
-                f"<span style='color:{color};'>{pred}</span></div>",
-                unsafe_allow_html=True
-            )
-        st.caption(f"{n_matched} / {len(results)} clips matched to a track "
-                   f"({len(results)-n_matched} returned `none`).")
+        try:
+            results = st.session_state.batch_results
+            st.markdown("##### Results")
+            n_matched = sum(1 for _, p in results if p != "none")
+            for fname, pred in results:
+                color = "#5eead4" if pred != "none" else "#64748b"
+                st.markdown(
+                    f"<div style='font-family:monospace;'>{fname} &nbsp;→&nbsp; "
+                    f"<span style='color:{color};'>{pred}</span></div>",
+                    unsafe_allow_html=True
+                )
+            st.caption(f"{n_matched} / {len(results)} clips matched to a track "
+                       f"({len(results)-n_matched} returned `none`).")
 
-        csv_buf = io.StringIO()
-        writer = csv.writer(csv_buf)
-        writer.writerow(["filename", "prediction"])
-        for fname, pred in results:
-            writer.writerow([fname, pred])
-        st.download_button(
-            "Download results.csv",
-            data=csv_buf.getvalue(),
-            file_name="results.csv",
-            mime="text/csv"
-        )
+            csv_buf = io.StringIO()
+            writer = csv.writer(csv_buf)
+            writer.writerow(["filename", "prediction"])
+            for fname, pred in results:
+                writer.writerow([fname, pred])
+            
+            st.download_button(
+                "Download results.csv",
+                data=csv_buf.getvalue().encode('utf-8'),
+                file_name="results.csv",
+                mime="text/csv"
+            )
+        except Exception as e:
+            st.error(f"Error rendering results: {str(e)}")
