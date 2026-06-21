@@ -506,7 +506,11 @@ with tab_batch:
             progress.progress((i + 1) / len(batch_files))
 
         status.text("Done.")
+        st.session_state.batch_results = results
+        st.session_state.batch_file_names = [f.name for f in batch_files]
 
+    if "batch_results" in st.session_state and batch_files and [f.name for f in batch_files] == st.session_state.get("batch_file_names", []):
+        results = st.session_state.batch_results
         st.markdown("##### Results")
         n_matched = sum(1 for _, p in results if p != "none")
         for fname, pred in results:
