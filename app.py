@@ -372,99 +372,106 @@ with tab_identify:
         st.markdown("---")
         st.caption(f"Identifying: **{source_label}**")
 
-        with st.spinner("Running fingerprint pipeline…"):
-            result = timed_identify(audio_bytes, db)
+        try:
+            with st.spinner("Running fingerprint pipeline…"):
+                result = timed_identify(audio_bytes, db)
 
-        timings = result['timings']
-        ranked = result['ranked']
+            timings = result['timings']
+            ranked = result['ranked']
 
-        # ---- Pipeline timing breakdown ----
-        stage_cols = st.columns(5)
-        stage_defs = [
-            ("SPECTROGRAM", timings['spectrogram'], f"{timings['spectrogram_shape'][0]}×{timings['spectrogram_shape'][1]}"),
-            ("CONSTELLATION", timings['constellation'], f"{timings['n_peaks']} peaks"),
-            ("HASHING", timings['hashing'], f"{timings['n_hashes']:,} hashes"),
-            ("DB LOOKUP", timings['db_lookup'], f"{timings['n_tracks_hit']} tracks"),
-            ("SCORING", timings['scoring'], f"offset {0}"),
-        ]
-        for col, (label, ms, detail) in zip(stage_cols, stage_defs):
-            col.markdown(f"""
-            <div class="pipeline-stage">
-                <div class="label">{label}</div>
-                <div class="ms">{ms:.0f} ms</div>
-                <div class="detail">{detail}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        st.caption(f"total {timings['total']:.0f} ms")
+            # ---- Pipeline timing breakdown ----
+            stage_cols = st.columns(5)
+            stage_defs = [
+                ("SPECTROGRAM", timings['spectrogram'], f"{timings['spectrogram_shape'][0]}×{timings['spectrogram_shape'][1]}"),
+                ("CONSTELLATION", timings['constellation'], f"{timings['n_peaks']} peaks"),
+                ("HASHING", timings['hashing'], f"{timings['n_hashes']:,} hashes"),
+                ("DB LOOKUP", timings['db_lookup'], f"{timings['n_tracks_hit']} tracks"),
+                ("SCORING", timings['scoring'], f"offset {0}"),
+            ]
+            for col, (label, ms, detail) in zip(stage_cols, stage_defs):
+                col.markdown(f"""
+                <div class="pipeline-stage">
+                    <div class="label">{label}</div>
+                    <div class="ms">{ms:.0f} ms</div>
+                    <div class="detail">{detail}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            st.caption(f"total {timings['total']:.0f} ms")
 
-        st.markdown("---")
+            st.markdown("---")
 
-        if not ranked or ranked[0][1] < 10:
-            st.error("No match found — try a longer or cleaner clip. (Confidence threshold not met)")
-            if ranked:
-                st.caption(f"Top candidate '{ranked[0][0]}' only scored {ranked[0][1]} aligned hashes. A true match requires at least 10.")
-        else:
-            top_name, top_score = ranked[0]
-            runner_up = ranked[1][1] if len(ranked) > 1 else 1
-            margin = top_score / max(runner_up, 1)
+            if not ranked or ranked[0][1] < 10:
+                st.error("No match found — try a longer or cleaner clip. (Confidence threshold not met)")
+                if ranked:
+                    st.caption(f"Top candidate '{ranked[0][0]}' only scored {ranked[0][1]} aligned hashes. A true match requires at least 10.")
+            else:
+                top_name, top_score = ranked[0]
+                runner_up = ranked[1][1] if len(ranked) > 1 else 1
+                margin = top_score / max(runner_up, 1)
 
-            st.markdown(f"""
-            <div class="match-hero">
-                <div class="eyebrow" style="color:#5eead4;">MATCH FOUND</div>
-                <h1>{top_name}</h1>
-                <div>cluster score <span class="cluster-score">{top_score:,}</span>
-                     &nbsp;·&nbsp; <span class="cluster-score">{margin:.0f}×</span> the runner-up</div>
-            </div>
-            """, unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="match-hero">
+                    <div class="eyebrow" style="color:#5eead4;">MATCH FOUND</div>
+                    <h1>{top_name}</h1>
+                    <div>cluster score <span class="cluster-score">{top_score:,}</span>
+                         &nbsp;·&nbsp; <span class="cluster-score">{margin:.0f}×</span> the runner-up</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-            st.markdown("##### Candidate scores")
-            render_candidate_bars(ranked, max_show=5)
+                st.markdown("##### Candidate scores")
+                render_candidate_bars(ranked, max_show=5)
 
-            # ---- Step 1: spectrogram + constellation ----
-            st.markdown("""
-            <div class="step-block">
-                <div class="eyebrow">STEP 1 · FEATURE EXTRACTION</div>
-                <h4>From spectrogram to constellation</h4>
-                <p style="color:#94a3b8;">The clip was converted into a time-frequency map (left); brighter means
-                louder at that frequency and moment. From that rich image, only the
-                <b style="color:#e2e8f0;">strongest peaks</b> were kept (right) — discarding amplitude and phase
-                makes the fingerprint robust to EQ, volume changes, and noise.</p>
-            </div>
-            """, unsafe_allow_html=True)
-            c1, c2 = st.columns(2)
-            c1.pyplot(plot_spectrogram(result['t_ax'], result['f_ax'], result['Sdb']))
-            c2.pyplot(plot_constellation(result['t_ax'], result['Sdb'], result['peaks'],
-                                          title=f"{len(result['peaks'])} peaks"))
+                # ---- Step 1: spectrogram + constellation ----
+                st.markdown("""
+                <div class="step-block">
+                    <div class="eyebrow">STEP 1 · FEATURE EXTRACTION</div>
+                    <h4>From spectrogram to constellation</h4>
+                    <p style="color:#94a3b8;">The clip was converted into a time-frequency map (left); brighter means
+                    louder at that frequency and moment. From that rich image, only the
+                    <b style="color:#e2e8f0;">strongest peaks</b> were kept (right) — discarding amplitude and phase
+                    makes the fingerprint robust to EQ, volume changes, and noise.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                fig_spec = plot_spectrogram(result['t_ax'], result['f_ax'], result['Sdb'])
+                c1.pyplot(fig_spec, clear_figure=True)
+                
+                fig_const = plot_constellation(result['t_ax'], result['Sdb'], result['peaks'], title=f"{len(result['peaks'])} peaks")
+                c2.pyplot(fig_const, clear_figure=True)
 
-            # ---- Step 2: full-song fingerprint reconstruction ----
-            st.markdown(f"""
-            <div class="step-block">
-                <div class="eyebrow">STEP 2 · DATABASE SEARCH</div>
-                <h4>Where in the song?</h4>
-                <p style="color:#94a3b8;">The <b style="color:#e2e8f0;">{timings['n_hashes']:,} fingerprint hashes</b>
-                were looked up against every indexed track. Below is the full fingerprint of
-                <i>{top_name}</i> reconstructed from the database — each dot is a stored hash anchor.
-                The highlighted window is exactly where the query clip sits inside the full song.</p>
-            </div>
-            """, unsafe_allow_html=True)
+                # ---- Step 2: full-song fingerprint reconstruction ----
+                st.markdown(f"""
+                <div class="step-block">
+                    <div class="eyebrow">STEP 2 · DATABASE SEARCH</div>
+                    <h4>Where in the song?</h4>
+                    <p style="color:#94a3b8;">The <b style="color:#e2e8f0;">{timings['n_hashes']:,} fingerprint hashes</b>
+                    were looked up against every indexed track. Below is the full fingerprint of
+                    <i>{top_name}</i> reconstructed from the database — each dot is a stored hash anchor.
+                    The highlighted window is exactly where the query clip sits inside the full song.</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-            offset = fp.best_offset(result['histograms'], top_name)
-            st.pyplot(plot_full_song_fingerprint(
-                db['songs'], top_name, result['Sdb'].shape[1],
-                int(offset) if offset is not None else None
-            ))
+                offset = fp.best_offset(result['histograms'], top_name)
+                fig_full = plot_full_song_fingerprint(
+                    db['songs'], top_name, result['Sdb'].shape[1],
+                    int(offset) if offset is not None else None
+                )
+                st.pyplot(fig_full, clear_figure=True)
 
-            # ---- Step 3: offset histogram (the proof) ----
-            st.markdown("""
-            <div class="step-block">
-                <div class="eyebrow">STEP 3 · THE PROOF</div>
-                <h4>The alignment spike</h4>
-                <p style="color:#94a3b8;">Every matched hash votes for a time offset (database frame minus query
-                frame). Chance matches scatter votes randomly, forming a flat noise floor. A genuine match
-                makes them converge into a single sharp spike — that spike cannot be a coincidence.</p>
-            </div>
-            """, unsafe_allow_html=True)
-            st.pyplot(plot_offset_histogram(result['histograms'], top_name))
+                # ---- Step 3: offset histogram (the proof) ----
+                st.markdown("""
+                <div class="step-block">
+                    <div class="eyebrow">STEP 3 · THE PROOF</div>
+                    <h4>The alignment spike</h4>
+                    <p style="color:#94a3b8;">Every matched hash votes for a time offset (database frame minus query
+                    frame). Chance matches scatter votes randomly, forming a flat noise floor. A genuine match
+                    makes them converge into a single sharp spike — that spike cannot be a coincidence.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                fig_hist = plot_offset_histogram(result['histograms'], top_name)
+                st.pyplot(fig_hist, clear_figure=True)
+        except Exception as e:
+            st.error(f"Error analyzing audio: The file may be corrupted, too short, or in an unsupported format. Details: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
