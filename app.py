@@ -442,10 +442,13 @@ with tab_identify:
                 """, unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 fig_spec = plot_spectrogram(result['t_ax'], result['f_ax'], result['Sdb'])
-                c1.pyplot(fig_spec, clear_figure=True)
+                c1.pyplot(fig_spec)
+                import matplotlib.pyplot as plt
+                plt.close(fig_spec)
                 
                 fig_const = plot_constellation(result['t_ax'], result['Sdb'], result['peaks'], title=f"{len(result['peaks'])} peaks")
-                c2.pyplot(fig_const, clear_figure=True)
+                c2.pyplot(fig_const)
+                plt.close(fig_const)
 
                 # ---- Step 2: full-song fingerprint reconstruction ----
                 st.markdown(f"""
@@ -464,7 +467,8 @@ with tab_identify:
                     db['songs'], top_name, result['Sdb'].shape[1],
                     int(offset) if offset is not None else None
                 )
-                st.pyplot(fig_full, clear_figure=True)
+                st.pyplot(fig_full)
+                plt.close(fig_full)
 
                 # ---- Step 3: offset histogram (the proof) ----
                 st.markdown("""
@@ -477,7 +481,8 @@ with tab_identify:
                 </div>
                 """, unsafe_allow_html=True)
                 fig_hist = plot_offset_histogram(result['histograms'], top_name)
-                st.pyplot(fig_hist, clear_figure=True)
+                st.pyplot(fig_hist)
+                plt.close(fig_hist)
         except Exception as e:
             st.error(f"Error analyzing audio: The file may be corrupted, too short, or in an unsupported format. Details: {e}")
 
@@ -530,6 +535,10 @@ with tab_batch:
                     del ranked
                 except Exception:
                     pass
+                
+                # Force garbage collection to prevent memory fragmentation across multiple batch runs
+                import gc
+                gc.collect()
                 
                 # Yield the thread briefly so Streamlit Cloud can run health checks
                 import time
