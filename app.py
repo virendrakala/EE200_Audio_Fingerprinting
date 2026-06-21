@@ -132,13 +132,21 @@ def get_database():
 
 
 def load_audio_file(file_obj, sr=fp.SR, max_duration=60):
-    if isinstance(file_obj, bytes):
-        import io
-        file_obj = io.BytesIO(file_obj)
-    else:
-        file_obj.seek(0)
+    import shutil
+    import tempfile
+    import os
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+        if isinstance(file_obj, bytes):
+            tmp.write(file_obj)
+        else:
+            file_obj.seek(0)
+            shutil.copyfileobj(file_obj, tmp)
+        tmp_path = tmp.name
         
-    y = fp.load_audio(file_obj, sr=sr, duration=max_duration)
+    try:
+        y = fp.load_audio(tmp_path, sr=sr, duration=max_duration)
+    finally:
+        os.unlink(tmp_path)
     return y
 
 
