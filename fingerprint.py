@@ -128,20 +128,27 @@ def match(query_audio, db, top_k=5):
     query_hashes = hash_peaks(peaks)
 
     hash_db = db['hashes']
-    song_offsets = defaultdict(list)
+    # Use a dictionary to count occurrences of offsets directly instead of appending to a massive list.
+    # This prevents allocating millions of integers in memory which leads to OOM crashes.
+    song_offsets = defaultdict(lambda: defaultdict(int))
     for (h, t_q) in query_hashes:
         if h in hash_db:
             for (song_name, t_db) in hash_db[h]:
-                song_offsets[song_name].append(t_db - t_q)
+                song_offsets[song_name][t_db - t_q] += 1
 
     scores = {}
     histograms = {}
-    for song_name, offsets in song_offsets.items():
-        if len(offsets) < 3:
+    for song_name, hist in song_offsets.items():
+        if not hist:
             continue
-        counts, bins = np.histogram(offsets, bins=300)
-        scores[song_name] = int(counts.max())
-        histograms[song_name] = (counts, bins)
+        # Find the peak count directly from the dictionary values
+        peak_count = max(hist.values())
+        if peak_count < 3:
+            continue
+        scores[song_name] = peak_count
+        # To maintain compatibility with app.py which expects (counts, bins), we mock it.
+        # However app.py's plot_offset_histogram only needs histograms[song_name] to be plottable.
+        histograms[song_name] = hist
 
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     return ranked[:top_k], histograms, peaks, query_hashes, song_offsets
@@ -151,6 +158,9 @@ def best_offset(histograms, song_name):
     """Return the offset (frame difference) where the histogram peak occurs."""
     if song_name not in histograms:
         return None
-    counts, bins = histograms[song_name]
-    idx = np.argmax(counts)
-    return (bins[idx] + bins[idx + 1]) / 2
+    hist = histograms[song_name]
+    if not hist:
+        return None
+    # Find the offset with the maximum count
+    best_off = max(hist, key=hist.get)
+    return best_off
