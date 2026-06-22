@@ -136,13 +136,17 @@ def load_audio_file(file_obj, sr=fp.SR):
     import librosa
     
     if isinstance(file_obj, bytes):
-        file_obj = io.BytesIO(file_obj)
+        mem_stream = io.BytesIO(file_obj)
     else:
         file_obj.seek(0)
+        # Detach from Tornado's internal buffer to prevent memory leaks
+        mem_stream = io.BytesIO(file_obj.read())
         
-    # Process the entire file without duration limit to restore 100% accuracy.
-    # Modern soundfile natively handles memory streams without subprocesses.
-    y, _ = librosa.load(file_obj, sr=sr, mono=True)
+    try:
+        y, _ = librosa.load(mem_stream, sr=sr, mono=True)
+    finally:
+        mem_stream.close()
+        
     return y
 
 
@@ -516,11 +520,16 @@ with tab_batch:
                 else:
                     try:
                         y = load_audio_file(f)
-                        ranked, _, _, _, _ = fp.match(y, db, top_k=1)
+                        match_result = fp.match(y, db, top_k=1)
+                        ranked = match_result[0]
                         if ranked and ranked[0][1] >= CONFIDENCE_THRESHOLD:
                             prediction = ranked[0][0]
                         else:
                             prediction = "none"
+                        
+                        del y
+                        del match_result
+                        del ranked
                     except Exception as e:
                         prediction = f"Error: {str(e)}"
                 
@@ -530,20 +539,13 @@ with tab_batch:
                 pct = int((i + 1) * 100 / len(batch_files))
                 progress.progress(min(100, pct))
                 
-                # Explicitly clear memory to prevent OOM across large batches
-                try:
-                    del y
-                    del ranked
-                except Exception:
-                    pass
-                
                 # Force garbage collection to prevent memory fragmentation across multiple batch runs
                 import gc
                 gc.collect()
                 
                 # Yield the thread briefly so Streamlit Cloud can run health checks
                 import time
-                time.sleep(0.05)
+                time.sleep(0.1)
 
             status.text("Done.")
             st.session_state.batch_results = results

@@ -40,7 +40,7 @@ def load_audio(path, sr=SR, duration=None):
 
 def make_spectrogram(y, sr=SR):
     f, t, Sxx = sp_signal.spectrogram(y, fs=sr, nperseg=NPERSEG, noverlap=NOVERLAP)
-    Sdb = 10 * np.log10(Sxx + 1e-10)
+    Sdb = (10 * np.log10(Sxx + 1e-10)).astype(np.float32)
     return f, t, Sdb
 
 
