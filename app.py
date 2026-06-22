@@ -131,40 +131,18 @@ def get_database():
     return db
 
 
-def load_audio_file(file_obj, sr=fp.SR, max_duration=60):
-    import shutil
-    import tempfile
-    import os
-    import subprocess
-    import soundfile as sf
+def load_audio_file(file_obj, sr=fp.SR):
+    import io
+    import librosa
     
-    with tempfile.NamedTemporaryFile(suffix='.tmp', delete=False) as tmp_in:
-        if isinstance(file_obj, bytes):
-            tmp_in.write(file_obj)
-        else:
-            file_obj.seek(0)
-            shutil.copyfileobj(file_obj, tmp_in)
-        in_path = tmp_in.name
+    if isinstance(file_obj, bytes):
+        file_obj = io.BytesIO(file_obj)
+    else:
+        file_obj.seek(0)
         
-    out_path = in_path + ".wav"
-    
-    try:
-        # Use ffmpeg directly to extract first 60 seconds safely without leaving zombie processes
-        subprocess.run([
-            "ffmpeg", "-y", "-i", in_path, 
-            "-t", str(max_duration), 
-            "-ar", str(sr), 
-            "-ac", "1", 
-            out_path
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        
-        y, _ = sf.read(out_path, dtype='float32')
-    finally:
-        if os.path.exists(in_path):
-            os.unlink(in_path)
-        if os.path.exists(out_path):
-            os.unlink(out_path)
-            
+    # Process the entire file without duration limit to restore 100% accuracy.
+    # Modern soundfile natively handles memory streams without subprocesses.
+    y, _ = librosa.load(file_obj, sr=sr, mono=True)
     return y
 
 
@@ -531,15 +509,20 @@ with tab_batch:
 
             for i, f in enumerate(batch_files):
                 status.text(f"Identifying {f.name} …")
-                try:
-                    y = load_audio_file(f)
-                    ranked, _, _, _, _ = fp.match(y, db, top_k=1)
-                    if ranked and ranked[0][1] >= CONFIDENCE_THRESHOLD:
-                        prediction = ranked[0][0]
-                    else:
-                        prediction = "none"
-                except Exception:
-                    prediction = "none"
+                
+                # Safety Limit: Skip excessively large files (e.g. > 20MB) to prevent Streamlit OOM
+                if f.size > 20 * 1024 * 1024:
+                    prediction = "File too large (skipped)"
+                else:
+                    try:
+                        y = load_audio_file(f)
+                        ranked, _, _, _, _ = fp.match(y, db, top_k=1)
+                        if ranked and ranked[0][1] >= CONFIDENCE_THRESHOLD:
+                            prediction = ranked[0][0]
+                        else:
+                            prediction = "none"
+                    except Exception as e:
+                        prediction = f"Error: {str(e)}"
                 
                 results.append((os.path.splitext(f.name)[0], prediction))
                 
