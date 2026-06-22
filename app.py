@@ -462,7 +462,9 @@ with tab_identify:
                 </div>
                 """, unsafe_allow_html=True)
 
-                offset = fp.best_offset(result['histograms'], top_name)
+                counts, bins = result['histograms'][top_name]
+                peak_idx = np.argmax(counts)
+                offset = (bins[peak_idx] + bins[peak_idx + 1]) / 2
                 fig_full = plot_full_song_fingerprint(
                     db['songs'], top_name, result['Sdb'].shape[1],
                     int(offset) if offset is not None else None
@@ -484,7 +486,8 @@ with tab_identify:
                 st.pyplot(fig_hist)
                 plt.close(fig_hist)
         except Exception as e:
-            st.error(f"Error analyzing audio: The file may be corrupted, too short, or in an unsupported format. Details: {e}")
+            import traceback
+            st.error(f"Error analyzing audio: The file may be corrupted, too short, or in an unsupported format. Details: {e}\n\nTraceback:\n{traceback.format_exc()}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -161,6 +161,14 @@ def best_offset(histograms, song_name):
     hist = histograms[song_name]
     if not hist:
         return None
+        
+    # If app.py passes a tuple of (counts, bins) from np.histogram
+    if isinstance(hist, tuple) and len(hist) == 2:
+        counts, bins = hist
+        peak_idx = np.argmax(counts)
+        return (bins[peak_idx] + bins[peak_idx + 1]) / 2
+
+    # If fingerprint.py passes a dictionary of offset counts
     # Find the offset with the maximum count
     best_off = max(hist, key=hist.get)
     return best_off
