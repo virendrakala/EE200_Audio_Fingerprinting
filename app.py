@@ -135,18 +135,36 @@ def load_audio_file(file_obj, sr=fp.SR, max_duration=60):
     import shutil
     import tempfile
     import os
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+    import subprocess
+    import soundfile as sf
+    
+    with tempfile.NamedTemporaryFile(suffix='.tmp', delete=False) as tmp_in:
         if isinstance(file_obj, bytes):
-            tmp.write(file_obj)
+            tmp_in.write(file_obj)
         else:
             file_obj.seek(0)
-            shutil.copyfileobj(file_obj, tmp)
-        tmp_path = tmp.name
+            shutil.copyfileobj(file_obj, tmp_in)
+        in_path = tmp_in.name
         
+    out_path = in_path + ".wav"
+    
     try:
-        y = fp.load_audio(tmp_path, sr=sr, duration=max_duration)
+        # Use ffmpeg directly to extract first 60 seconds safely without leaving zombie processes
+        subprocess.run([
+            "ffmpeg", "-y", "-i", in_path, 
+            "-t", str(max_duration), 
+            "-ar", str(sr), 
+            "-ac", "1", 
+            out_path
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        y, _ = sf.read(out_path, dtype='float32')
     finally:
-        os.unlink(tmp_path)
+        if os.path.exists(in_path):
+            os.unlink(in_path)
+        if os.path.exists(out_path):
+            os.unlink(out_path)
+            
     return y
 
 
