@@ -122,13 +122,23 @@ st.markdown(DARK_CSS, unsafe_allow_html=True)
 # ── Database loading (cached) ────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading fingerprint database…")
 def get_database():
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, 'rb') as f:
-            return pickle.load(f)
-    db = fp.build_database()
-    with open(DB_PATH, 'wb') as f:
-        pickle.dump(db, f)
-    return db
+    import pickle
+    # Load the friend's split database format to prevent memory fragmentation during load
+    with open('song_database.pkl', 'rb') as f:
+        hashes = pickle.load(f)
+    with open('song_metadata.pkl', 'rb') as f:
+        meta = pickle.load(f)
+        
+    # Map friend's metadata keys to our UI's expected keys so our UI stays exactly as it is
+    for song_name, m in meta.items():
+        if 'duration_sec' not in m:
+            m['duration_sec'] = m.get('duration', 0)
+        if 'n_frames' not in m:
+            m['n_frames'] = int(m.get('duration', 0) * fp.SR / fp.HOP_LENGTH)
+        if 'n_hashes' not in m:
+            m['n_hashes'] = m.get('num_hashes', 0)
+            
+    return {'hashes': hashes, 'songs': meta}
 
 
 def load_audio_file(file_obj, sr=fp.SR):
@@ -278,15 +288,24 @@ def plot_full_song_fingerprint(song_meta, song_name, query_n_frames, best_offset
 
 
 def plot_offset_histogram(histograms, song_name):
-    counts, bins = histograms[song_name]
+    hist = histograms[song_name]
     fig, ax = _dark_fig((9, 3.2))
-    centers = (bins[:-1] + bins[1:]) / 2
-    colors = ['#f59e0b' if c == counts.max() else PLOT_FG for c in counts]
-    ax.bar(centers, counts, width=np.diff(bins), color=colors, edgecolor='none')
-    peak_idx = np.argmax(counts)
-    ax.annotate(f'{counts.max():,} hashes\nalign here',
-                xy=(centers[peak_idx], counts.max()),
-                xytext=(centers[peak_idx] + (bins[-1]-bins[0])*0.15, counts.max()*0.8),
+    
+    # Extract keys and values from the dictionary
+    offsets = list(hist.keys())
+    counts = list(hist.values())
+    max_count = max(counts)
+    
+    colors = ['#f59e0b' if c == max_count else PLOT_FG for c in counts]
+    ax.bar(offsets, counts, width=1.0, color=colors, edgecolor='none')
+    
+    peak_offset = max(hist, key=hist.get)
+    # Safely compute arrow position
+    offset_range = max(offsets) - min(offsets) if offsets else 1
+    
+    ax.annotate(f'{max_count:,} hashes\nalign here',
+                xy=(peak_offset, max_count),
+                xytext=(peak_offset + offset_range * 0.15, max_count * 0.8),
                 color='#f59e0b', fontsize=9,
                 arrowprops=dict(color='#f59e0b', arrowstyle='->'))
     ax.set_xlabel('time offset (database frame − query frame)')
