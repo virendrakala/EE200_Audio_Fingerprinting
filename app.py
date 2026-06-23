@@ -161,6 +161,8 @@ def timed_identify(audio_bytes, db):
 
     f_ax, t_ax, Sdb = fp.make_spectrogram(y)
     t2 = time.perf_counter()
+    del y
+    import gc; gc.collect()
     timings['spectrogram'] = (t2 - t1) * 1000
     timings['spectrogram_shape'] = Sdb.shape
 
@@ -174,32 +176,37 @@ def timed_identify(audio_bytes, db):
     timings['hashing'] = (t4 - t3) * 1000
     timings['n_hashes'] = len(hashes)
 
-    hash_db = db['hashes']
-    song_offsets = defaultdict(list)
-    for (h, t_q) in hashes:
-        if h in hash_db:
-            for (song_name, t_db) in hash_db[h]:
-                song_offsets[song_name].append(t_db - t_q)
+    arr = db['lookup']
+    song_names = db['song_names']
+    key_arr = arr['f1'].astype(np.int64)*512*41 + arr['f2'].astype(np.int64)*41 + arr['dt']
+    song_offsets = defaultdict(lambda: defaultdict(int))
+    for (f1, f2, dt), t_q in hashes:
+        key = int(f1)*512*41 + int(f2)*41 + int(dt)
+        lo = np.searchsorted(key_arr, key)
+        hi = np.searchsorted(key_arr, key, side='right')
+        for row in arr[lo:hi]:
+            song_offsets[song_names[row['song_idx']]][int(row['t_anchor']) - t_q] += 1
     t5 = time.perf_counter()
     timings['db_lookup'] = (t5 - t4) * 1000
     timings['n_tracks_hit'] = len(song_offsets)
 
     scores, histograms = {}, {}
-    for song_name, offsets in song_offsets.items():
-        if len(offsets) < 3:
+    for song_name, hist in song_offsets.items():
+        if not hist:
             continue
-        counts, bins = np.histogram(offsets, bins=300)
-        scores[song_name] = int(counts.max())
-        histograms[song_name] = (counts, bins)
+        peak_count = max(hist.values())
+        if peak_count < 3:
+            continue
+        scores[song_name] = peak_count
+        histograms[song_name] = hist
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     t6 = time.perf_counter()
     timings['scoring'] = (t6 - t5) * 1000
     timings['total'] = (t6 - t0) * 1000
 
     return {
-        'y': y, 'f_ax': f_ax, 't_ax': t_ax, 'Sdb': Sdb,
-        'peaks': peaks, 'hashes': hashes,
-        'song_offsets': song_offsets, 'scores': scores,
+        'f_ax': f_ax, 't_ax': t_ax, 'Sdb': Sdb,
+        'peaks': peaks,
         'histograms': histograms, 'ranked': ranked,
         'timings': timings,
     }
@@ -258,8 +265,8 @@ def plot_full_song_fingerprint(song_meta, song_name, query_n_frames, best_offset
     n_frames = info['n_frames']
 
     fig, ax = _dark_fig((9, 3.6))
-    xs = [p[0] for p in peaks]
-    ys = [p[1] for p in peaks]
+    xs = peaks[:, 0]
+    ys = peaks[:, 1]
     ax.scatter(xs, ys, s=2, c=PLOT_FG, alpha=0.5)
 
     # Highlight the matched window: [best_offset_frames, best_offset_frames + query_n_frames]
@@ -278,26 +285,24 @@ def plot_full_song_fingerprint(song_meta, song_name, query_n_frames, best_offset
 
 
 def plot_offset_histogram(histograms, song_name):
-    counts, bins = histograms[song_name]
+    hist = histograms[song_name]
     fig, ax = _dark_fig((9, 3.2))
 
-    # Rebuild a dict of {offset: count} from the np.histogram result so we can
-    # plot one bar per occupied bin (width=1) instead of 300 equally-wide bins
-    # that make the spike invisible.
-    centers = (bins[:-1] + bins[1:]) / 2
-    occupied = counts > 0
-    occ_centers = centers[occupied]
-    occ_counts  = counts[occupied]
+    # hist is a dict of {offset: count}
+    offsets = np.array(sorted(hist.keys()))
+    counts = np.array([hist[off] for off in offsets])
 
-    best_offset = centers[np.argmax(counts)]
+    best_offset = offsets[np.argmax(counts)]
+    
+    # We plot one bar per occupied bin (width=1)
     bar_colors = ['#f59e0b' if abs(c - best_offset) < 1 else PLOT_FG
-                  for c in occ_centers]
-    bar_width = (bins[1] - bins[0]) if len(bins) > 1 else 1
+                  for c in offsets]
+    bar_width = 1
 
-    ax.bar(occ_centers, occ_counts, width=bar_width, color=bar_colors, edgecolor='none')
+    ax.bar(offsets, counts, width=bar_width, color=bar_colors, edgecolor='none')
 
     # Zoom x-axis to ±10% around the spike so it's clearly visible
-    span = max(abs(bins[0]), abs(bins[-1]))
+    span = max(abs(offsets[0]), abs(offsets[-1])) if len(offsets) > 0 else 1
     zoom = min(span, max(200, span * 0.10))
     ax.set_xlim(best_offset - zoom, best_offset + zoom)
 
@@ -336,7 +341,7 @@ st.markdown("# EE200: Audio Fingerprinting")
 
 db = get_database()
 n_songs = len(db['songs'])
-n_hashes = len(db['hashes'])
+n_hashes = len(db['lookup'])
 st.caption(f"Database ready — **{n_songs} songs** indexed into **{n_hashes:,} fingerprint hashes**")
 
 tab_library, tab_identify, tab_batch = st.tabs(["LIBRARY", "IDENTIFY", "BATCH"])
@@ -401,6 +406,7 @@ with tab_identify:
         try:
             with st.spinner("Running fingerprint pipeline…"):
                 result = timed_identify(audio_bytes, db)
+                import gc; gc.collect()
 
             timings = result['timings']
             ranked = result['ranked']
@@ -480,9 +486,7 @@ with tab_identify:
                 </div>
                 """, unsafe_allow_html=True)
 
-                counts, bins = result['histograms'][top_name]
-                peak_idx = np.argmax(counts)
-                offset = (bins[peak_idx] + bins[peak_idx + 1]) / 2
+                offset = fp.best_offset(result['histograms'], top_name)
                 fig_full = plot_full_song_fingerprint(
                     db['songs'], top_name, result['Sdb'].shape[1],
                     int(offset) if offset is not None else None

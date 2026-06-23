@@ -86,9 +86,10 @@ def build_database(song_dir=SONG_DIR, progress_callback=None):
     Build the full database: hashes for matching + full per-song constellations
     for the "full song fingerprint reconstruction" visualization.
     """
-    hash_db = defaultdict(list)
+    all_entries = []   # will become numpy array
     song_meta = {}
     songs = sorted([f for f in os.listdir(song_dir) if f.endswith('.mp3')])
+    song_name_list = []  # index -> name, for compact int8 storage
 
     for i, fname in enumerate(songs):
         name = os.path.splitext(fname)[0]
@@ -99,23 +100,46 @@ def build_database(song_dir=SONG_DIR, progress_callback=None):
         peaks = find_peaks(Sdb)
         hashes = hash_peaks(peaks)
 
-        for h, t_anchor in hashes:
-            hash_db[h].append((name, t_anchor))
+        song_idx = len(song_name_list)
+        song_name_list.append(name)
 
+        for (f1, f2, dt), t_anchor in hashes:
+            all_entries.append((f1, f2, dt, song_idx, t_anchor))
+
+        # Store peaks as numpy array (8x more compact than list of tuples)
         song_meta[name] = {
-            'peaks': peaks,
+            'peaks': np.array(peaks, dtype=np.int32),
             'n_frames': Sdb.shape[1],
             'n_hashes': len(hashes),
             'duration_sec': duration_sec,
             'filename': fname,
         }
+        del y, Sdb  # free audio and spectrogram immediately
 
         if progress_callback:
             progress_callback(i + 1, len(songs), name)
         else:
             print(f"  [{i+1}/{len(songs)}] {name}  ({len(peaks)} peaks, {len(hashes)} hashes)")
 
-    return {'hashes': dict(hash_db), 'songs': song_meta}
+    # Pack everything into one sorted numpy array: (f1, f2, dt, song_idx, t_anchor)
+    dtype = np.dtype([
+        ('f1', np.int16), ('f2', np.int16), ('dt', np.int16),
+        ('song_idx', np.int16), ('t_anchor', np.int16)
+    ])
+    arr = np.array(all_entries, dtype=dtype)
+    # Sort by (f1, f2, dt) so we can binary-search for hash keys
+    sort_keys = arr['f1'].astype(np.int64)*512*41 + arr['f2'].astype(np.int64)*41 + arr['dt']
+    arr = arr[np.argsort(sort_keys)]
+
+    return {
+        'lookup': arr,           # ~50 MB numpy array instead of ~888 MB dict
+        'song_names': song_name_list,
+        'songs': song_meta,
+    }
+
+
+def _hash_key(f1, f2, dt):
+    return int(f1)*512*41 + int(f2)*41 + int(dt)
 
 
 def match(query_audio, db, top_k=5):
@@ -127,27 +151,31 @@ def match(query_audio, db, top_k=5):
     peaks = find_peaks(Sdb)
     query_hashes = hash_peaks(peaks)
 
-    hash_db = db['hashes']
-    # Use a dictionary to count occurrences of offsets directly instead of appending to a massive list.
-    # This prevents allocating millions of integers in memory which leads to OOM crashes.
+    arr = db['lookup']
+    song_names = db['song_names']
+    # Precompute sorted key array once
+    key_arr = arr['f1'].astype(np.int64)*512*41 + arr['f2'].astype(np.int64)*41 + arr['dt']
+
     song_offsets = defaultdict(lambda: defaultdict(int))
-    for (h, t_q) in query_hashes:
-        if h in hash_db:
-            for (song_name, t_db) in hash_db[h]:
-                song_offsets[song_name][t_db - t_q] += 1
+    for (f1, f2, dt), t_q in query_hashes:
+        key = _hash_key(f1, f2, dt)
+        lo = np.searchsorted(key_arr, key)
+        hi = np.searchsorted(key_arr, key, side='right')
+        if lo == hi:
+            continue
+        for row in arr[lo:hi]:
+            name = song_names[row['song_idx']]
+            song_offsets[name][int(row['t_anchor']) - t_q] += 1
 
     scores = {}
     histograms = {}
     for song_name, hist in song_offsets.items():
         if not hist:
             continue
-        # Find the peak count directly from the dictionary values
         peak_count = max(hist.values())
         if peak_count < 3:
             continue
         scores[song_name] = peak_count
-        # To maintain compatibility with app.py which expects (counts, bins), we mock it.
-        # However app.py's plot_offset_histogram only needs histograms[song_name] to be plottable.
         histograms[song_name] = hist
 
     ranked = sorted(scores.items(), key=lambda x: -x[1])
