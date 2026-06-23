@@ -175,24 +175,22 @@ def timed_identify(audio_bytes, db):
     timings['n_hashes'] = len(hashes)
 
     hash_db = db['hashes']
-    song_offsets = defaultdict(lambda: defaultdict(int))
+    song_offsets = defaultdict(list)
     for (h, t_q) in hashes:
         if h in hash_db:
             for (song_name, t_db) in hash_db[h]:
-                song_offsets[song_name][t_db - t_q] += 1
+                song_offsets[song_name].append(t_db - t_q)
     t5 = time.perf_counter()
     timings['db_lookup'] = (t5 - t4) * 1000
     timings['n_tracks_hit'] = len(song_offsets)
 
     scores, histograms = {}, {}
-    for song_name, hist in song_offsets.items():
-        if not hist:
+    for song_name, offsets in song_offsets.items():
+        if len(offsets) < 3:
             continue
-        peak_count = max(hist.values())
-        if peak_count < 3:
-            continue
-        scores[song_name] = peak_count
-        histograms[song_name] = hist
+        counts, bins = np.histogram(offsets, bins=300)
+        scores[song_name] = int(counts.max())
+        histograms[song_name] = (counts, bins)
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     t6 = time.perf_counter()
     timings['scoring'] = (t6 - t5) * 1000
@@ -280,33 +278,33 @@ def plot_full_song_fingerprint(song_meta, song_name, query_n_frames, best_offset
 
 
 def plot_offset_histogram(histograms, song_name):
-    hist = histograms[song_name]
+    counts, bins = histograms[song_name]
     fig, ax = _dark_fig((9, 3.2))
-    
-    if isinstance(hist, tuple) and len(hist) == 2:
-        counts, bins = hist
-        centers = (bins[:-1] + bins[1:]) / 2
-        width = np.diff(bins)
-        counts_max = counts.max()
-        peak_idx = np.argmax(counts)
-        peak_center = centers[peak_idx]
-        x_text = peak_center + (bins[-1]-bins[0])*0.15
-    else:
-        offsets = sorted(hist.keys())
-        counts = np.array([hist[off] for off in offsets])
-        centers = np.array(offsets)
-        width = 1.0
-        counts_max = counts.max()
-        peak_idx = np.argmax(counts)
-        peak_center = centers[peak_idx]
-        x_text = peak_center + (centers[-1]-centers[0])*0.15 if len(centers) > 1 else peak_center + 10
-        
-    colors = ['#f59e0b' if c == counts_max else PLOT_FG for c in counts]
-    ax.bar(centers, counts, width=width, color=colors, edgecolor='none')
-    
-    ax.annotate(f'{counts_max:,} hashes\nalign here',
-                xy=(peak_center, counts_max),
-                xytext=(x_text, counts_max*0.8),
+
+    # Rebuild a dict of {offset: count} from the np.histogram result so we can
+    # plot one bar per occupied bin (width=1) instead of 300 equally-wide bins
+    # that make the spike invisible.
+    centers = (bins[:-1] + bins[1:]) / 2
+    occupied = counts > 0
+    occ_centers = centers[occupied]
+    occ_counts  = counts[occupied]
+
+    best_offset = centers[np.argmax(counts)]
+    bar_colors = ['#f59e0b' if abs(c - best_offset) < 1 else PLOT_FG
+                  for c in occ_centers]
+    bar_width = (bins[1] - bins[0]) if len(bins) > 1 else 1
+
+    ax.bar(occ_centers, occ_counts, width=bar_width, color=bar_colors, edgecolor='none')
+
+    # Zoom x-axis to ±10% around the spike so it's clearly visible
+    span = max(abs(bins[0]), abs(bins[-1]))
+    zoom = min(span, max(200, span * 0.10))
+    ax.set_xlim(best_offset - zoom, best_offset + zoom)
+
+    peak_count = int(counts.max())
+    ax.annotate(f'{peak_count:,} hashes\nalign here',
+                xy=(best_offset, peak_count),
+                xytext=(best_offset + zoom * 0.3, peak_count * 0.75),
                 color='#f59e0b', fontsize=9,
                 arrowprops=dict(color='#f59e0b', arrowstyle='->'))
     ax.set_xlabel('time offset (database frame − query frame)')
@@ -378,19 +376,18 @@ with tab_identify:
     st.markdown("##### Or try a sample")
     sample_files = sorted([f for f in os.listdir(SAMPLES_DIR) if f.endswith('.mp3')]) if os.path.isdir(SAMPLES_DIR) else []
 
-    chosen_sample = st.session_state.get("chosen_sample", None)
+    chosen_sample = None
     for sf_name in sample_files:
         c1, c2, c3 = st.columns([1.2, 5, 1])
         c1.markdown(f"`{sf_name}`")
         c2.audio(os.path.join(SAMPLES_DIR, sf_name))
         if c3.button("Try", key=f"try_{sf_name}"):
-            st.session_state["chosen_sample"] = sf_name
             chosen_sample = sf_name
 
     audio_bytes = None
     source_label = None
     if uploaded is not None:
-        audio_bytes = uploaded.getvalue()
+        audio_bytes = uploaded.getvalue()   # getvalue() never exhausts; .read() returns b'' on reruns
         source_label = uploaded.name
     elif chosen_sample is not None:
         with open(os.path.join(SAMPLES_DIR, chosen_sample), 'rb') as f:
@@ -403,12 +400,7 @@ with tab_identify:
 
         try:
             with st.spinner("Running fingerprint pipeline…"):
-                if "last_label" not in st.session_state or st.session_state["last_label"] != source_label:
-                    result = timed_identify(audio_bytes, db)
-                    st.session_state["last_result"] = result
-                    st.session_state["last_label"] = source_label
-                else:
-                    result = st.session_state["last_result"]
+                result = timed_identify(audio_bytes, db)
 
             timings = result['timings']
             ranked = result['ranked']
@@ -469,6 +461,7 @@ with tab_identify:
                 c1, c2 = st.columns(2)
                 fig_spec = plot_spectrogram(result['t_ax'], result['f_ax'], result['Sdb'])
                 c1.pyplot(fig_spec)
+                import matplotlib.pyplot as plt
                 plt.close(fig_spec)
                 
                 fig_const = plot_constellation(result['t_ax'], result['Sdb'], result['peaks'], title=f"{len(result['peaks'])} peaks")
@@ -487,7 +480,9 @@ with tab_identify:
                 </div>
                 """, unsafe_allow_html=True)
 
-                offset = fp.best_offset(result['histograms'], top_name)
+                counts, bins = result['histograms'][top_name]
+                peak_idx = np.argmax(counts)
+                offset = (bins[peak_idx] + bins[peak_idx + 1]) / 2
                 fig_full = plot_full_song_fingerprint(
                     db['songs'], top_name, result['Sdb'].shape[1],
                     int(offset) if offset is not None else None
