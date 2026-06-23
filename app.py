@@ -338,6 +338,7 @@ def render_candidate_bars(ranked, max_show=5):
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="eyebrow">SIGNALS, SYSTEMS &amp; NETWORKS · PROJECT DEMO</div>', unsafe_allow_html=True)
 st.markdown("# EE200: Audio Fingerprinting")
+st.markdown("#### **Group Members:** Virendra Kala (241172), Vishaka (241173)")
 
 db = get_database()
 n_songs = len(db['songs'])
@@ -382,12 +383,12 @@ with tab_identify:
     sample_files = sorted([f for f in os.listdir(SAMPLES_DIR) if f.endswith('.mp3')]) if os.path.isdir(SAMPLES_DIR) else []
 
     chosen_sample = None
-    for sf_name in sample_files:
-        c1, c2, c3 = st.columns([1.2, 5, 1])
-        c1.markdown(f"`{sf_name}`")
-        c2.audio(os.path.join(SAMPLES_DIR, sf_name))
-        if c3.button("Try", key=f"try_{sf_name}"):
-            chosen_sample = sf_name
+    if sample_files:
+        st.markdown("<br>", unsafe_allow_html=True)
+        cols = st.columns(len(sample_files))
+        for i, sf_name in enumerate(sample_files):
+            if cols[i].button(sf_name, key=f"try_{sf_name}", help="Click to test this sample"):
+                chosen_sample = sf_name
 
     audio_bytes = None
     source_label = None
