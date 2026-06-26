@@ -21,10 +21,10 @@ import fingerprint as fp
 DB_PATH = "database.pkl"
 SAMPLES_DIR = "samples"
 
-# ── Page config ──────────────────────────────────────────────────────────────
+#Page config
 st.set_page_config(page_title="EE200: Audio Fingerprinting", layout="wide")
 
-# ── Dark terminal theme (CSS) ────────────────────────────────────────────────
+# Dark terminal theme (CSS)
 DARK_CSS = """
 <style>
 :root {
@@ -119,7 +119,7 @@ h1, h2, h3, h4 { color: var(--text) !important; font-family: 'Courier New', mono
 """
 st.markdown(DARK_CSS, unsafe_allow_html=True)
 
-# ── Database loading (cached) ────────────────────────────────────────────────
+#Database loading (cached) 
 @st.cache_resource(show_spinner="Loading fingerprint database…")
 def get_database():
     if os.path.exists(DB_PATH):
@@ -139,7 +139,6 @@ def load_audio_file(file_obj, sr=fp.SR):
         mem_stream = io.BytesIO(file_obj)
     else:
         file_obj.seek(0)
-        # Detach from Tornado's internal buffer to prevent memory leaks
         mem_stream = io.BytesIO(file_obj.read())
         
     try:
@@ -150,7 +149,6 @@ def load_audio_file(file_obj, sr=fp.SR):
     return y
 
 
-# ── Timed pipeline: runs each stage separately so we can report ms per stage ─
 def timed_identify(audio_bytes, db):
     timings = {}
 
@@ -212,7 +210,6 @@ def timed_identify(audio_bytes, db):
     }
 
 
-# ── Plotting helpers (dark theme to match the terminal aesthetic) ───────────
 PLOT_BG = "#0a0e14"
 PLOT_FG = "#5eead4"
 PLOT_FG2 = "#94a3b8"
@@ -269,7 +266,6 @@ def plot_full_song_fingerprint(song_meta, song_name, query_n_frames, best_offset
     ys = peaks[:, 1]
     ax.scatter(xs, ys, s=2, c=PLOT_FG, alpha=0.5)
 
-    # Highlight the matched window: [best_offset_frames, best_offset_frames + query_n_frames]
     if best_offset_frames is not None:
         x0 = max(0, best_offset_frames)
         x1 = min(n_frames, best_offset_frames + query_n_frames)
@@ -288,20 +284,17 @@ def plot_offset_histogram(histograms, song_name):
     hist = histograms[song_name]
     fig, ax = _dark_fig((9, 3.2))
 
-    # hist is a dict of {offset: count}
     offsets = np.array(sorted(hist.keys()))
     counts = np.array([hist[off] for off in offsets])
 
     best_offset = offsets[np.argmax(counts)]
     
-    # We plot one bar per occupied bin (width=1)
     bar_colors = ['#f59e0b' if abs(c - best_offset) < 1 else PLOT_FG
                   for c in offsets]
     bar_width = 1
 
     ax.bar(offsets, counts, width=bar_width, color=bar_colors, edgecolor='none')
 
-    # Zoom x-axis to ±10% around the spike so it's clearly visible
     span = max(abs(offsets[0]), abs(offsets[-1])) if len(offsets) > 0 else 1
     zoom = min(span, max(200, span * 0.10))
     ax.set_xlim(best_offset - zoom, best_offset + zoom)
@@ -335,7 +328,7 @@ def render_candidate_bars(ranked, max_show=5):
         """, unsafe_allow_html=True)
 
 
-# ── Header ────────────────────────────────────────────────────────────────────
+#Header
 st.markdown('<div class="eyebrow">SIGNALS, SYSTEMS &amp; NETWORKS · </div>', unsafe_allow_html=True)
 st.markdown("# EE200: Audio Fingerprinting")
 st.markdown("#### **Group Members:** Virendra Kala (241172), Vishaka (241173)")
@@ -347,9 +340,9 @@ st.caption(f"Database ready — **{n_songs} songs** indexed into **{n_hashes:,} 
 
 tab_library, tab_identify, tab_batch = st.tabs(["LIBRARY", "IDENTIFY", "BATCH"])
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # LIBRARY TAB
-# ══════════════════════════════════════════════════════════════════════════════
+
 with tab_library:
     st.markdown("### Indexed song library")
     st.caption("Every track below has been fingerprinted and is searchable from the Identify and Batch tabs.")
@@ -372,9 +365,9 @@ with tab_library:
             cols[4].caption("(audio file not bundled with this deployment)")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # IDENTIFY TAB
-# ══════════════════════════════════════════════════════════════════════════════
+
 with tab_identify:
     st.markdown("### Upload a query clip")
     uploaded = st.file_uploader("MP3 or WAV", type=["mp3", "wav"], key="identify_uploader")
@@ -513,9 +506,9 @@ with tab_identify:
             st.error(f"Error analyzing audio: The file may be corrupted, too short, or in an unsupported format. Details: {e}\n\nTraceback:\n{traceback.format_exc()}")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # BATCH TAB
-# ══════════════════════════════════════════════════════════════════════════════
+
 with tab_batch:
     st.markdown("### Identify many clips at once")
     st.caption(
@@ -540,7 +533,6 @@ with tab_batch:
             for i, f in enumerate(batch_files):
                 status.text(f"Identifying {f.name} …")
                 
-                # Safety Limit: Skip excessively large files (e.g. > 20MB) to prevent Streamlit OOM
                 if f.size > 20 * 1024 * 1024:
                     prediction = "File too large (skipped)"
                 else:
@@ -561,15 +553,12 @@ with tab_batch:
                 
                 results.append((os.path.splitext(f.name)[0], prediction))
                 
-                # Use integer progress (0 to 100) to avoid any float type-mismatch errors
                 pct = int((i + 1) * 100 / len(batch_files))
                 progress.progress(min(100, pct))
                 
-                # Force garbage collection to prevent memory fragmentation across multiple batch runs
                 import gc
                 gc.collect()
                 
-                # Yield the thread briefly so Streamlit Cloud can run health checks
                 import time
                 time.sleep(0.1)
 
@@ -608,4 +597,3 @@ with tab_batch:
             )
         except Exception as e:
             st.error(f"Error rendering results: {str(e)}")
-# Defensive EOF check

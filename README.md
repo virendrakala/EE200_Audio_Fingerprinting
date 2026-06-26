@@ -33,24 +33,6 @@ noise) degrades match confidence**, because the fixed `N_PEAKS`-per-frame cap
 combined with extremely peaky/noisy content produces far more candidate hashes
 than melodic content does, diluting the signal-to-collision ratio.
 
-## Deploying to Streamlit Community Cloud
-
-1. **Create a new GitHub repo** (public).
-2. **Push this folder's contents:**
-   ```bash
-   cd path/to/this/folder
-   git init
-   git add .
-   git commit -m "Audio fingerprinting Shazam-style identifier v2"
-   git branch -M main
-   git remote add origin https://github.com/<your-username>/<repo-name>.git
-   git push -u origin main
-   ```
-3. Go to [share.streamlit.io](https://share.streamlit.io) → sign in with GitHub
-   → **New app** → select repo, branch `main`, main file `app.py` → **Deploy**.
-4. First load takes ~1–2 minutes (installing `librosa`); after that,
-   `database.pkl` loads in a few seconds (cached via `@st.cache_resource`).
-5. You'll get a public URL like `https://<repo-name>-<random>.streamlit.app`.
 
 ## Running locally
 ```bash

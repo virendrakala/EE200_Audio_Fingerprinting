@@ -6,8 +6,8 @@ Database structure (database.pkl):
     'hashes': { (f1, f2, dt): [(song_name, t_anchor), ...], ... },
     'songs': {
         song_name: {
-            'peaks': [(t_idx, f_idx), ...],   # FULL constellation for the song
-            'n_frames': int,                   # total spectrogram time frames
+            'peaks': [(t_idx, f_idx), ...],
+            'n_frames': int,
             'n_hashes': int,
             'duration_sec': float,
         },
@@ -82,14 +82,10 @@ def hash_peaks(peaks):
 
 
 def build_database(song_dir=SONG_DIR, progress_callback=None):
-    """
-    Build the full database: hashes for matching + full per-song constellations
-    for the "full song fingerprint reconstruction" visualization.
-    """
-    all_entries = []   # will become numpy array
+    all_entries = []
     song_meta = {}
     songs = sorted([f for f in os.listdir(song_dir) if f.endswith('.mp3')])
-    song_name_list = []  # index -> name, for compact int8 storage
+    song_name_list = []
 
     for i, fname in enumerate(songs):
         name = os.path.splitext(fname)[0]
@@ -106,7 +102,6 @@ def build_database(song_dir=SONG_DIR, progress_callback=None):
         for (f1, f2, dt), t_anchor in hashes:
             all_entries.append((f1, f2, dt, song_idx, t_anchor))
 
-        # Store peaks as numpy array (8x more compact than list of tuples)
         song_meta[name] = {
             'peaks': np.array(peaks, dtype=np.int32),
             'n_frames': Sdb.shape[1],
@@ -114,25 +109,23 @@ def build_database(song_dir=SONG_DIR, progress_callback=None):
             'duration_sec': duration_sec,
             'filename': fname,
         }
-        del y, Sdb  # free audio and spectrogram immediately
+        del y, Sdb
 
         if progress_callback:
             progress_callback(i + 1, len(songs), name)
         else:
             print(f"  [{i+1}/{len(songs)}] {name}  ({len(peaks)} peaks, {len(hashes)} hashes)")
 
-    # Pack everything into one sorted numpy array: (f1, f2, dt, song_idx, t_anchor)
     dtype = np.dtype([
         ('f1', np.int16), ('f2', np.int16), ('dt', np.int16),
         ('song_idx', np.int16), ('t_anchor', np.int16)
     ])
     arr = np.array(all_entries, dtype=dtype)
-    # Sort by (f1, f2, dt) so we can binary-search for hash keys
     sort_keys = arr['f1'].astype(np.int64)*512*41 + arr['f2'].astype(np.int64)*41 + arr['dt']
     arr = arr[np.argsort(sort_keys)]
 
     return {
-        'lookup': arr,           # ~50 MB numpy array instead of ~888 MB dict
+        'lookup': arr,
         'song_names': song_name_list,
         'songs': song_meta,
     }
@@ -153,7 +146,6 @@ def match(query_audio, db, top_k=5):
 
     arr = db['lookup']
     song_names = db['song_names']
-    # Precompute sorted key array once
     key_arr = arr['f1'].astype(np.int64)*512*41 + arr['f2'].astype(np.int64)*41 + arr['dt']
 
     song_offsets = defaultdict(lambda: defaultdict(int))
@@ -183,20 +175,16 @@ def match(query_audio, db, top_k=5):
 
 
 def best_offset(histograms, song_name):
-    """Return the offset (frame difference) where the histogram peak occurs."""
     if song_name not in histograms:
         return None
     hist = histograms[song_name]
     if not hist:
         return None
         
-    # If app.py passes a tuple of (counts, bins) from np.histogram
     if isinstance(hist, tuple) and len(hist) == 2:
         counts, bins = hist
         peak_idx = np.argmax(counts)
         return (bins[peak_idx] + bins[peak_idx + 1]) / 2
 
-    # If fingerprint.py passes a dictionary of offset counts
-    # Find the offset with the maximum count
     best_off = max(hist, key=hist.get)
     return best_off
