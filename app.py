@@ -336,7 +336,7 @@ def render_candidate_bars(ranked, max_show=5):
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown('<div class="eyebrow">SIGNALS, SYSTEMS &amp; NETWORKS · PROJECT DEMO</div>', unsafe_allow_html=True)
+st.markdown('<div class="eyebrow">SIGNALS, SYSTEMS &amp; NETWORKS · </div>', unsafe_allow_html=True)
 st.markdown("# EE200: Audio Fingerprinting")
 st.markdown("#### **Group Members:** Virendra Kala (241172), Vishaka (241173)")
 
