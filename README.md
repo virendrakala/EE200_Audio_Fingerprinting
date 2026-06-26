@@ -15,25 +15,6 @@
 - `packages.txt` — system-level (apt) dependencies — `ffmpeg` + `libsndfile1`,
   needed for MP3 decoding on Streamlit Cloud.
 
-## A note on a real bug found and fixed during testing
-
-The first "We Will Rock You" sample clip was cut from the song's famous
-stomp-stomp-clap intro. That section is so percussive (broadband noise-like
-content) that the peak-picker found **more than double** the normal number of
-constellation peaks (2,999 vs. ~1,300 typical), which produced a combinatorial
-explosion of spurious hash collisions — every song in the database scored
-500,000+ "matches," and a wrong song occasionally narrowly out-scored the
-correct one. The fix: re-cut the sample from a less percussive section
-(starting at 60s instead of 5s) — peak count returned to normal (~1,250) and
-the match became correct and confident (74x margin over the runner-up).
-
-This is a genuine limitation of the constellation/peak-picking approach worth
-knowing: **very dense, broadband, percussive audio (drum solos, claps, white
-noise) degrades match confidence**, because the fixed `N_PEAKS`-per-frame cap
-combined with extremely peaky/noisy content produces far more candidate hashes
-than melodic content does, diluting the signal-to-collision ratio.
-
-
 ## Running locally
 ```bash
 pip install -r requirements.txt
